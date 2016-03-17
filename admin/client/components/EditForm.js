@@ -7,6 +7,7 @@ import FormHeading from './FormHeading';
 import AltText from './AltText';
 import FooterBar from './FooterBar';
 import InvalidFieldType from './InvalidFieldType';
+import evalDependsOn from '../../../fields/utils/evalDependsOn.js';
 import { Button, Col, Form, FormField, FormInput, ResponsiveText, Row } from 'elemental';
 
 function upCase (str) {
@@ -29,11 +30,13 @@ var EditForm = React.createClass({
 	propTypes: {
 		data: React.PropTypes.object,
 		list: React.PropTypes.object,
+		reloadData: React.PropTypes.func,
 	},
 	getInitialState () {
 		return {
 			values: Object.assign({}, this.props.data.fields),
 			confirmationDialog: null,
+			actionsDisabled: false,
 		};
 	},
 	getFieldProps (field) {
@@ -83,7 +86,7 @@ var EditForm = React.createClass({
 		list.deleteItem(data.id, err => {
 			if (err) {
 				console.error(`Problem deleting ${list.singular}: ${data.name}`);
-				// TODO: slow a flash message on form
+				// TODO: show a flash message on form
 				return;
 			}
 			top.location.href = `${Keystone.adminPath}/${list.path}`;
@@ -92,7 +95,30 @@ var EditForm = React.createClass({
 	handleKeyFocus () {
 		const input = findDOMNode(this.refs.keyOrIdInput);
 		input.select();
-	},
+		},
+	handleCustomAction (customAction) {
+		let { list, data } = this.props;
+		let { values } = this.state;
+		this.setState({ actionsDisabled: true });
+		list.callCustomAction(values, data.id, customAction, (actionErr, body) => {
+			this.setState({ actionsDisabled: false });
+			this.props.reloadData((err, itemData) => {
+
+				this.setState({
+					values: Object.assign({}, this.props.data.fields),
+				});
+
+				this.props.clearMessages();
+				window.scroll(0, 0);
+				if (!_.isUndefined(actionErr) && !_.isNull(actionErr) ) {
+					console.error(`Problem carrying out custom action ${customAction.name}: `, actionErr);
+					this.props.addMessage('error', actionErr);
+				} else {
+					this.props.addMessage('success', body.message);
+				}
+			});
+		});
+        },
 	removeConfirmationDialog () {
 		this.setState({
 			confirmationDialog: null,
@@ -182,12 +208,6 @@ var EditForm = React.createClass({
 				if (typeof Fields[field.type] !== 'function') {
 					return React.createElement(InvalidFieldType, { type: field.type, path: field.path, key: field.path });
 				}
-				if (props.dependsOn) {
-					props.currentDependencies = {};
-					Object.keys(props.dependsOn).forEach(dep => {
-						props.currentDependencies[dep] = this.state.values[dep];
-					});
-				}
 				props.key = field.path;
 				return React.createElement(Fields[field.type], props);
 			}
@@ -195,16 +215,26 @@ var EditForm = React.createClass({
 	},
 	renderFooterBar () {
 		var buttons = [
-			<Button key="save" type="primary" submit>Save</Button>,
+			<Button key="save" type="primary" submit disabled={this.state.actionsDisabled}>Save</Button>,
 		];
+
+		this.props.list.customActions.forEach(customAction => {
+			buttons.push(
+				<Button onClick={this.handleCustomAction.bind(this, customAction)} key={customAction.slug} type={customAction.type} title={customAction.title} disabled={this.state.actionsDisabled || !evalDependsOn(customAction.dependsOn, this.state.values)}>
+					<ResponsiveText hiddenXS={`${customAction.name}`} visibleXS={customAction.mobileText} />
+				</Button>
+			);
+		});
+
 		buttons.push(
-			<Button key="reset" onClick={this.confirmReset} type="link-cancel">
+			<Button key="reset" onClick={this.confirmReset} type="link-cancel" disabled={this.state.actionsDisabled}>
 				<ResponsiveText hiddenXS="reset changes" visibleXS="reset" />
 			</Button>
 		);
+
 		if (!this.props.list.nodelete) {
 			buttons.push(
-				<Button key="del" onClick={this.confirmDelete} type="link-delete" className="u-float-right">
+				<Button key="del" onClick={this.confirmDelete} type="link-delete" className="u-float-right" disabled={this.state.actionsDisabled}>
 					<ResponsiveText hiddenXS={`delete ${this.props.list.singular.toLowerCase()}`} visibleXS="delete" />
 				</Button>
 			);

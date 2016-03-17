@@ -3,6 +3,7 @@
 const listToArray = require('list-to-array');
 const qs = require('qs');
 const xhr = require('xhr');
+const _ = require('underscore');
 
 function getColumns (list) {
 	return list.uiElements.map((col) => {
@@ -39,6 +40,18 @@ function buildQueryString (options) {
 	if (options.sort) query.sort = getSortString(options.sort);
 	query.expandRelationshipFields = true;
 	return '?' + qs.stringify(query);
+};
+
+function handleResponse (callback) {
+	return function (err, res, body) {
+		if (err) return callback(err);
+		if (res.statusCode < 200 || res.statusCode >= 300) {
+			err = body.err;
+			body = null;
+		}
+
+		callback(err, body);
+	};
 };
 
 const List = function (options) {
@@ -188,17 +201,8 @@ List.prototype.deleteItems = function (itemIds, callback) {
 		url: url,
 		method: 'POST',
 		headers: Keystone.csrf.header,
-	}, (err, resp, body) => {
-		if (err) return callback(err);
-		// TODO: check resp.statusCode
-		try {
-			body = JSON.parse(body);
-		} catch (e) {
-			console.log('Error parsing results json:', e, body);
-			return callback(e);
-		}
-		callback(null, body);
-	});
+		responseType: 'json',
+	}, handleResponse(callback));
 };
 
 List.prototype.reorderItems = function (item, oldSortOrder, newSortOrder, pageOptions, callback) {
@@ -207,17 +211,23 @@ List.prototype.reorderItems = function (item, oldSortOrder, newSortOrder, pageOp
 		url: url,
 		method: 'POST',
 		headers: Keystone.csrf.header,
-	}, (err, resp, body) => {
-		if (err) return callback(err);
-		// TODO: check resp.statusCode
-		try {
-			body = JSON.parse(body);
-		} catch (e) {
-			console.log('Error parsing results json:', e, body);
-			return callback(e);
-		}
-		callback(null, body);
-	});
+		responseType: 'json',
+	}, handleResponse(callback));
+};
+
+List.prototype.callCustomAction = function (data, itemId, action, callback) {
+	const url = Keystone.adminPath + '/api/' + this.path + '/' + itemId + '/actions/' + action.slug;
+
+	xhr({
+		url: url,
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			...Keystone.csrf.header,
+		},
+		responseType: 'json',
+		body: JSON.stringify(data),
+	}, handleResponse(callback));
 };
 
 
