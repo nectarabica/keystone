@@ -118,7 +118,7 @@ var EditForm = React.createClass({
 				}
 			});
 		});
-	
+        },
 	removeConfirmationDialog () {
 		this.setState({
 			confirmationDialog: null,
